@@ -127,6 +127,7 @@ struct nvme_root {
 	bool log_pid;
 	bool log_timestamp;
 	bool modified;
+	bool mi_probe_enabled;
 };
 
 int nvme_set_attr(const char *dir, const char *attr, const char *value);
@@ -188,6 +189,7 @@ struct nvme_mi_transport {
 	int (*check_timeout)(struct nvme_mi_ep *ep, unsigned int timeout);
 };
 
+
 struct nvme_mi_ep {
 	struct nvme_root *root;
 	const struct nvme_mi_transport *transport;
@@ -197,6 +199,7 @@ struct nvme_mi_ep {
 	bool controllers_scanned;
 	unsigned int timeout;
 	unsigned int mprt_max;
+	unsigned long quirks;
 };
 
 struct nvme_mi_ctrl {
@@ -206,6 +209,7 @@ struct nvme_mi_ctrl {
 };
 
 struct nvme_mi_ep *nvme_mi_init_ep(struct nvme_root *root);
+void nvme_mi_ep_probe(struct nvme_mi_ep *ep);
 
 /* for tests, we need to calculate the correct MICs */
 __u32 nvme_mi_crc32_update(__u32 crc, void *data, size_t len);
