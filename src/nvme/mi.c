@@ -62,6 +62,10 @@ void nvme_mi_ep_probe(struct nvme_mi_ep *ep)
 
 	/* no quirks defined yet, nothing to probe! */
 	ep->quirks = 0;
+
+	/* TESTING ONLY: force an inter-command delay */
+	ep->quirks = NVME_QUIRK_MIN_INTER_COMMAND_TIME;
+	ep->inter_command_us = 1200;
 }
 
 static const int nsec_per_sec = 1000 * 1000 * 1000;
