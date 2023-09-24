@@ -253,6 +253,7 @@ struct nvme_mi_ep *nvme_mi_init_ep(nvme_root_t root)
 	ep->controllers_scanned = false;
 	ep->timeout = default_timeout;
 	ep->mprt_max = 0;
+	ep->mpr_cb = NULL;
 	list_head_init(&ep->controllers);
 
 	list_add(&root->endpoints, &ep->root_entry);
@@ -281,6 +282,12 @@ void nvme_mi_ep_set_mprt_max(nvme_mi_ep_t ep, unsigned int mprt_max_ms)
 unsigned int nvme_mi_ep_get_timeout(nvme_mi_ep_t ep)
 {
 	return ep->timeout;
+}
+
+void nvme_mi_ep_set_mpr_cb(nvme_mi_ep_t ep, nvme_mi_mpr_cb cb, void *data)
+{
+	ep->mpr_cb = cb;
+	ep->mpr_cb_data = data;
 }
 
 static bool nvme_mi_ep_has_quirk(nvme_mi_ep_t ep, unsigned long quirk)

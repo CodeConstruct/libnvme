@@ -582,6 +582,8 @@ static int poll_fn_mpr_poll(struct test_peer *peer, struct pollfd *fds,
 	switch (info->poll_no) {
 	case 1:
 	case 2:
+		printf("timeout %d, info->timeouts: %d\n",
+		       timeout, info->timeouts[info->poll_no - 1]);
 		assert(timeout == info->timeouts[info->poll_no - 1]);
 		break;
 	default:
@@ -711,6 +713,141 @@ static void test_mpr_mprt_zero(nvme_mi_ep_t ep, struct test_peer *peer)
 	assert(rc == 0);
 }
 
+/* helper for mpr callback tests */
+struct mpr_cb_info {
+	/* set by callback */
+	bool invoked;
+	unsigned int mprt;
+	/* read by callback */
+	bool set_mprt;
+	unsigned int new_mprt;
+	int ret;
+};
+
+static int mpr_callback(nvme_mi_ep_t ep, void *data, unsigned int mprt,
+			unsigned int *mprt_eff)
+{
+	struct mpr_cb_info *info = data;
+
+	info->invoked = true;
+	info->mprt = mprt;
+
+	if (info->set_mprt)
+		*mprt_eff = info->new_mprt;
+
+	return info->ret;
+}
+
+/* test: we see a MPR callback with the reported MPRT value */
+static void test_mpr_cb_param(nvme_mi_ep_t ep, struct test_peer *peer)
+{
+	struct nvme_mi_read_nvm_ss_info ss_info;
+	struct mpr_cb_info cb_info = { 0 };
+	struct mpr_poll_info poll_info;
+	struct mpr_tx_info tx_info;
+	int rc;
+
+	nvme_mi_ep_set_timeout(ep, 3141);
+	nvme_mi_ep_set_mpr_cb(ep, mpr_callback, &cb_info);
+
+	tx_info.msg_no = 1;
+	tx_info.final_len = sizeof(struct nvme_mi_mi_resp_hdr) + sizeof(ss_info);
+
+	poll_info.poll_no = 1;
+	poll_info.mprt = 1234;
+	poll_info.timeouts[0] = 3141;
+	poll_info.timeouts[1] = 1234 * 100;
+
+	peer->tx_fn = tx_fn_mpr_poll;
+	peer->tx_data = &tx_info;
+
+	peer->poll_fn = poll_fn_mpr_poll;
+	peer->poll_data = &poll_info;
+
+	rc = nvme_mi_mi_read_mi_data_subsys(ep, &ss_info);
+	assert(rc == 0);
+
+	assert(cb_info.invoked);
+	assert(cb_info.mprt == 1234 * 100);
+
+	nvme_mi_ep_set_mpr_cb(ep, NULL, NULL);
+}
+
+/* test: we see a MPR callback, and can update the MPR time */
+static void test_mpr_cb_update(nvme_mi_ep_t ep, struct test_peer *peer)
+{
+	struct nvme_mi_read_nvm_ss_info ss_info;
+	struct mpr_cb_info cb_info = { 0 };
+	struct mpr_poll_info poll_info;
+	struct mpr_tx_info tx_info;
+	int rc;
+
+	nvme_mi_ep_set_timeout(ep, 3141);
+	nvme_mi_ep_set_mpr_cb(ep, mpr_callback, &cb_info);
+
+	tx_info.msg_no = 1;
+	tx_info.final_len = sizeof(struct nvme_mi_mi_resp_hdr) + sizeof(ss_info);
+
+	cb_info.set_mprt = true;
+	cb_info.new_mprt = 1;
+
+	poll_info.poll_no = 1;
+	poll_info.mprt = 1234;
+	poll_info.timeouts[0] = 3141;
+	/* enforce the matching timeout from the new_mprt value */
+	poll_info.timeouts[1] = 1;
+
+	peer->tx_fn = tx_fn_mpr_poll;
+	peer->tx_data = &tx_info;
+
+	peer->poll_fn = poll_fn_mpr_poll;
+	peer->poll_data = &poll_info;
+
+	rc = nvme_mi_mi_read_mi_data_subsys(ep, &ss_info);
+	assert(rc == 0);
+
+	assert(cb_info.invoked);
+
+	nvme_mi_ep_set_mpr_cb(ep, NULL, NULL);
+}
+
+/* test: we cancel a waiting mpr-ed response */
+static void test_mpr_cb_cancel(nvme_mi_ep_t ep, struct test_peer *peer)
+{
+	struct nvme_mi_read_nvm_ss_info ss_info;
+	struct mpr_cb_info cb_info = { 0 };
+	struct mpr_poll_info poll_info;
+	struct mpr_tx_info tx_info;
+	int rc;
+
+	nvme_mi_ep_set_timeout(ep, 3141);
+	nvme_mi_ep_set_mpr_cb(ep, mpr_callback, &cb_info);
+
+	tx_info.msg_no = 1;
+	tx_info.final_len = sizeof(struct nvme_mi_mi_resp_hdr) + sizeof(ss_info);
+
+	cb_info.ret = -1;
+
+	poll_info.poll_no = 1;
+	poll_info.mprt = 1234;
+	poll_info.timeouts[0] = 3141;
+	poll_info.timeouts[1] = 1234;
+
+	peer->tx_fn = tx_fn_mpr_poll;
+	peer->tx_data = &tx_info;
+
+	peer->poll_fn = poll_fn_mpr_poll;
+	peer->poll_data = &poll_info;
+
+	rc = nvme_mi_mi_read_mi_data_subsys(ep, &ss_info);
+
+	assert(rc != 0);
+	assert(errno == EBUSY);
+	assert(cb_info.invoked);
+
+	nvme_mi_ep_set_mpr_cb(ep, NULL, NULL);
+}
+
 #define DEFINE_TEST(name) { #name, test_ ## name }
 struct test {
 	const char *name;
@@ -735,6 +872,9 @@ struct test {
 	DEFINE_TEST(mpr_timeouts),
 	DEFINE_TEST(mpr_timeout_clamp),
 	DEFINE_TEST(mpr_mprt_zero),
+	DEFINE_TEST(mpr_cb_param),
+	DEFINE_TEST(mpr_cb_update),
+	DEFINE_TEST(mpr_cb_cancel),
 };
 
 static void run_test(struct test *test, FILE *logfd, nvme_mi_ep_t ep,

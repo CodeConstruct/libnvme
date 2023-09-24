@@ -65,6 +65,8 @@
  *
  *  - EINVAL: invalid input arguments for a command
  *
+ *  - EBUSY: operation was cancelled through a MPR callback
+ *
  * In line with the core NVMe API, the Admin command functions take an
  * `_args` structure to provide the command-specific parameters. However,
  * for the MI interface, the fd and timeout members of these _args structs
@@ -500,6 +502,49 @@ int nvme_mi_ep_set_timeout(nvme_mi_ep_t ep, unsigned int timeout_ms);
  * &nvme_mi_ep_set_timeout().
  */
 void nvme_mi_ep_set_mprt_max(nvme_mi_ep_t ep, unsigned int mprt_max_ms);
+
+/*
+ * typedef nvme_mi_mpr_cb - Callback type for MI "More Processing Required"
+ * message events.
+ * @ep: MI endpoint object
+ * @data: opaque caller data provided to nvme_mi_ep_set_mpr_cb
+ * @req_mprt: the MPRT value requested by the endpoint, in milliseconds.
+ * @actual_mprt: the MPRT value we would apply, in milliseconds.
+ *
+ * The req_mprt value is passed as-is from the MPRT response from the MI
+ * endpoint, the actual_mprt value is what would be applied to this
+ * request (ie, it may be clamped by nvme_mi_ep_set_mprt_max(), or the
+ * overall EP timeout). The caller may alter the actual_mprt value (even above
+ * the maximum) - in this case, the new value will be used for the MI response
+ * timeout.
+ *
+ * A non-zero return value will cause libnvme-mi to abort waiting for the
+ * eventual response.
+ *
+ * See: &nvme_mi_ep_set_mpr_cb
+ */
+typedef int (*nvme_mi_mpr_cb)(nvme_mi_ep_t ep, void *data,
+			      unsigned int mprt, unsigned int *actual_mprt);
+
+/**
+ * nvme_mi_ep_set_mpr_cb - set a callback to be invoked on More Processing
+ * Required events.
+ * @ep: MI endpoint object
+ * @cb: Callback function
+ * @data: Caller-specified opaquie data, passed back to mprt_cb
+ *
+ * NVMe-MI endpoints may respond to a request with a "More Processing Required"
+ * response. This function allows the caller to provide a callback
+ * fuction that will be invoked when we see a MPR message, notifying of
+ * a potentially long-running command/response operation.
+ *
+ * Note that the MPR beahviour may be largely device-specific; some
+ * implementations will sent a MPR response for long operations, others may
+ * not.
+ *
+ * See: &nvme_mi_mpr_cb
+ */
+void nvme_mi_ep_set_mpr_cb(nvme_mi_ep_t ep, nvme_mi_mpr_cb cb, void *data);
 
 /**
  * nvme_mi_ep_get_timeout - get the current timeout value for NVMe-MI responses

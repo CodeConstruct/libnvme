@@ -383,19 +383,32 @@ retry:
 	 * to keep the tag allocated and retry the recvmsg
 	 */
 	if (nvme_mi_mctp_resp_is_mpr(mctp->resp_buf, len, mic, &mpr_time)) {
+		unsigned int mpr_time_eff; /* effective time, after clamping */
+
 		nvme_msg(ep->root, LOG_DEBUG,
 			 "Received More Processing Required, waiting for response\n");
 
 		/* if the controller hasn't set MPRT, fall back to our command/
 		 * response timeout, or the largest possible MPRT if none set */
-		if (!mpr_time)
-			mpr_time = ep->timeout ?: 0xffff;
+		mpr_time_eff = mpr_time;
+		if (!mpr_time_eff)
+			mpr_time_eff = ep->timeout ?: 0xffff;
 
 		/* clamp to the endpoint max */
-		if (ep->mprt_max && mpr_time > ep->mprt_max)
-			mpr_time = ep->mprt_max;
+		if (ep->mprt_max && mpr_time_eff > ep->mprt_max)
+			mpr_time_eff = ep->mprt_max;
 
-		timeout = mpr_time;
+		if (ep->mpr_cb) {
+			rc = ep->mpr_cb(ep, ep->mpr_cb_data, mpr_time,
+					&mpr_time_eff);
+			if (rc) {
+				errno = EBUSY;
+				rc = -1;
+				goto out;
+			}
+		}
+
+		timeout = mpr_time_eff;
 		goto retry;
 	}
 

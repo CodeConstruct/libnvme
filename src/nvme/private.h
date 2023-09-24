@@ -249,6 +249,8 @@ struct nvme_mi_ep {
 	struct list_head controllers;
 	bool controllers_scanned;
 	unsigned int timeout;
+	nvme_mi_mpr_cb mpr_cb;
+	void *mpr_cb_data;
 	unsigned int mprt_max;
 	unsigned long quirks;
 
